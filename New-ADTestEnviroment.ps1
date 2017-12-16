@@ -55,7 +55,7 @@ function New-ADTestEnviroment
         [String]
         $lastNameFile = "Lastnames.csv",
 
-        # Format: City,Street,State,PostalCode,Country  
+        # Format: City,Street,State,PostalCode,Country,PhoneNumber  
         [String]            
         $addressFile = "Addresses.csv",  
                              
@@ -125,8 +125,9 @@ function New-ADTestEnviroment
            $state = $addresses[$addressIndex].State
            $postalCode = $addresses[$addressIndex].PostalCode
            $country = $addresses[$addressIndex].Country
-           $locations += @{"Street" = $street; "City" = $city; "State" = $state; "PostalCode" = $postalCode; "Country" = $country}
-   
+           $phoneNumber = $addresses[$addressIndex].PhoneNumber
+           $locations += @{"Street" = $street; "City" = $city; "State" = $state; "PostalCode" = $postalCode; "Country" = $country; "PhoneNumber" = $phoneNumber}
+
            # Do not use this address again
            $addressIndexesUsed += $addressIndex
         }
@@ -187,13 +188,13 @@ function New-ADTestEnviroment
                 $state = $locations[$locationIndex].State
                 $postalCode = $locations[$locationIndex].PostalCode
                 $country = $locations[$locationIndex].Country
+                $phoneNumber = $locations[$locationIndex].PhoneNumber
+                $officePhone = "$phoneNumber x$($accountIndex.ToString().PadLeft($userCount.ToString().Length,"0"))"
    
                 # Department & title
                 $departmentIndex = Get-Random -Minimum 0 -Maximum $departments.Count
                 $department = $departments[$departmentIndex].Name
                 $title = $departments[$departmentIndex].Positions[$(Get-Random -Minimum 0 -Maximum $departments[$departmentIndex].Positions.Count)]
-
-                $officePhone = $phoneCountryCodes[$country] + " (" + $locations[$locationIndex].PhoneAreaCode + ") " + (Get-Random -Minimum 10000000 -Maximum 99999999)
    
                 # Build the sAMAccountName: $orgShortName + employee number
                 $sAMAccountName = $orgShortName + $accountIndex
