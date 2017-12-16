@@ -14,13 +14,13 @@ function New-ADTestEnviroment
     [OutputType([String])]
     Param
     (
-        # Which OU to create the user in
+        # Domain LDAP Path
         [String]
         $LDAPPath = "DC=company,DC=pri",
 
-        # Which OU to create the user in
+        # Ou to create users in
         [String]
-        $LDAPOU = "OU=company",
+        $mainOU = "Company",
               
         # Initial password set for the user
         [String]
@@ -66,8 +66,7 @@ function New-ADTestEnviroment
         # Create OUs for each deparment
         [switch]
         $CreateOUs
-        
-
+       
     )
 
     Begin
@@ -137,10 +136,25 @@ function New-ADTestEnviroment
     {
         if ($CreateOUs -and $pscmdlet.ShouldProcess($dnsDomain, "Create OUs"))
         {
+            #Create Main OU
+            try
+            {
+                New-ADOrganizationalUnit -Name $mainOU -ProtectedFromAccidentalDeletion $false
+                Write-Verbose "$mainOU OU created"
+            }
+            catch [Microsoft.ActiveDirectory.Management.ADException]
+            {
+                Write-Warning "$mainOU OU already exists"
+            }
+            catch {
+                Write-Error "Error while creating $mainOU OU"
+            }
+
+            #Create sub OUs
             foreach($deparment in $departments){
                 try
                 {
-                    New-ADOrganizationalUnit -Name $deparment.Name;
+                    New-ADOrganizationalUnit -Name $deparment.Name -Path "OU=$mainOU,$LDAPPath" -ProtectedFromAccidentalDeletion $false
                     Write-Verbose "$($deparment.Name) OU created"
                 }
                 catch [Microsoft.ActiveDirectory.Management.ADException]
@@ -156,66 +170,49 @@ function New-ADTestEnviroment
         if ($pscmdlet.ShouldProcess($dnsDomain, "Create Users"))
         {
             #create users
-            $i = 0
-            if ($i -lt $userCount) 
+            for ($accountIndex = 1; $accountIndex -le $userCount; $accountIndex++)
             {
-                foreach ($firstname in $firstNames)
+                $FnameIndex = Get-Random -Minimum 0 -Maximum $firstNames.Count
+                $LnameIndex = Get-Random -Minimum 0 -Maximum $lastnames.Count
+
+                $Fname = $firstNames[$FnameIndex].Firstname
+                $Lname = $lastNames[$LnameIndex].Lastname
+
+                $displayName = $Fname + " " + $Lname
+
+                # Address
+                $locationIndex = Get-Random -Minimum 0 -Maximum $locations.Count
+                $street = $locations[$locationIndex].Street
+                $city = $locations[$locationIndex].City
+                $state = $locations[$locationIndex].State
+                $postalCode = $locations[$locationIndex].PostalCode
+                $country = $locations[$locationIndex].Country
+   
+                # Department & title
+                $departmentIndex = Get-Random -Minimum 0 -Maximum $departments.Count
+                $department = $departments[$departmentIndex].Name
+                $title = $departments[$departmentIndex].Positions[$(Get-Random -Minimum 0 -Maximum $departments[$departmentIndex].Positions.Count)]
+
+                $officePhone = $phoneCountryCodes[$country] + " (" + $locations[$locationIndex].PhoneAreaCode + ") " + (Get-Random -Minimum 10000000 -Maximum 99999999)
+   
+                # Build the sAMAccountName: $orgShortName + employee number
+                $sAMAccountName = $orgShortName + $accountIndex
+
+                # User OU
+                $userPath = "OU=$mainOU,$LDAPPath"
+                if($CreateOUs) {
+                    $userPath = "OU=$department,$userPath"
+                }
+
+                # Create the user account
+                Try { 
+                    New-ADUser -SamAccountName $sAMAccountName -Name $displayName -Path $userPath -AccountPassword $securePassword -Enabled $true -GivenName $Fname -Surname $Lname -DisplayName $displayName -EmailAddress "$Fname.$Lname@$dnsDomain" -StreetAddress $street -City $city -PostalCode $postalCode -State $state -Country $country -UserPrincipalName "$sAMAccountName@$dnsDomain" -Company $company -Department $department -EmployeeNumber $accountIndex -Title $title -OfficePhone $officePhone
+                    Write-Verbose "Created user # $accountIndex ,$displayName, $sAMAccountName, $title, $department, $street, $city"
+                } 
+                Catch [Microsoft.ActiveDirectory.Management.ADIdentityAlreadyExistsException]
                 {
-                    foreach ($lastname in $lastnames)
-                    {
-                        $Fname = $firstname.Firstname
-                        $Lname = $lastName.Lastname
-
-                        $displayName = $Fname + " " + $Lname
-
-                       # Address
-                       $locationIndex = Get-Random -Minimum 0 -Maximum $locations.Count
-                       $street = $locations[$locationIndex].Street
-                       $city = $locations[$locationIndex].City
-                       $state = $locations[$locationIndex].State
-                       $postalCode = $locations[$locationIndex].PostalCode
-                       $country = $locations[$locationIndex].Country
-   
-                       # Department & title
-                       $departmentIndex = Get-Random -Minimum 0 -Maximum $departments.Count
-                       $department = $departments[$departmentIndex].Name
-                       $title = $departments[$departmentIndex].Positions[$(Get-Random -Minimum 0 -Maximum $departments[$departmentIndex].Positions.Count)]
-
-                       $officePhone = $phoneCountryCodes[$country] + " (" + $locations[$locationIndex].PhoneAreaCode + ") " + (Get-Random -Minimum 10000000 -Maximum 99999999)
-   
-                       # Build the sAMAccountName: $orgShortName + employee number
-                       $sAMAccountName = $orgShortName + $employeeNumber
-                       $userExists = $false
-                       Try   { $userExists = Get-ADUser -LDAPFilter "(sAMAccountName=$sAMAccountName)" }
-                       Catch { }
-                       if ($userExists)
-                       {
-                          $i=$i-1
-                          if ($i -lt 0)
-                          {$i=0}
-                          continue
-                       }
-
-                       #
-                       # Create the user account
-                       #
-
-                       if($CreateOUs){
-                           $ou = "OU=$department,$LDAPPath"
-                       }
-                       else 
-                       {
-                           $ou = "$LDAPOU,$LDAPPath"
-                       }
-
-                       New-ADUser -SamAccountName $sAMAccountName -Name $displayName -Path $ou -AccountPassword $securePassword -Enabled $true -GivenName $Fname -Surname $Lname -DisplayName $displayName -EmailAddress "$Fname.$Lname@$dnsDomain" -StreetAddress $street -City $city -PostalCode $postalCode -State $state -Country $country -UserPrincipalName "$sAMAccountName@$dnsDomain" -Company $company -Department $department -EmployeeNumber $employeeNumber -Title $title -OfficePhone $officePhone
-
-                       Write-Verbose "Created user # $($i+1) ,$displayName, $sAMAccountName, $title, $department, $street, $city"
-
-                       $i = $i+1
-                       $employeeNumber = $employeeNumber+1
-
-                    }
+                    Write-Verbose "Account $sAMAccountName already exist"
+                    $accountIndex--
                 }
             }
         }
@@ -223,7 +220,7 @@ function New-ADTestEnviroment
 
     End
     {
-        Write-Verbose "COmpleted setup, $userCount users created"
+        Write-Verbose "Completed setup, $userCount users created"
     }
 }
 
