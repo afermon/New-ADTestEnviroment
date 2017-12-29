@@ -20,8 +20,12 @@ function New-ADTestEnviroment
 
         # Ou to create users in
         [String]
-        $mainOU = "Company",
-              
+        $usersMainOU = "Company Users",
+        
+        # Ou to create users in
+        [String]
+        $computersMainOU = "Company Computers",
+
         # Initial password set for the user
         [String]
         $initialPassword = "User2017.",               
@@ -65,8 +69,11 @@ function New-ADTestEnviroment
 
         # Create OUs for each deparment
         [switch]
-        $CreateOUs
-       
+        $CreateOUs,
+        
+        # Create computer for each user
+        [switch]
+        $CreateComputerAccounts
     )
 
     Begin
@@ -140,22 +147,22 @@ function New-ADTestEnviroment
             #Create Main OU
             try
             {
-                New-ADOrganizationalUnit -Name $mainOU -ProtectedFromAccidentalDeletion $false
-                Write-Verbose "$mainOU OU created"
+                New-ADOrganizationalUnit -Name $usersMainOU -ProtectedFromAccidentalDeletion $false
+                Write-Verbose "$usersMainOU OU created"
             }
             catch [Microsoft.ActiveDirectory.Management.ADException]
             {
-                Write-Warning "$mainOU OU already exists"
+                Write-Warning "$usersMainOU OU already exists"
             }
             catch {
-                Write-Error "Error while creating $mainOU OU"
+                Write-Error "Error while creating $usersMainOU OU"
             }
 
             #Create sub OUs
             foreach($deparment in $departments){
                 try
                 {
-                    New-ADOrganizationalUnit -Name $deparment.Name -Path "OU=$mainOU,$LDAPPath" -ProtectedFromAccidentalDeletion $false
+                    New-ADOrganizationalUnit -Name $deparment.Name -Path "OU=$usersMainOU,$LDAPPath" -ProtectedFromAccidentalDeletion $false
                     Write-Verbose "$($deparment.Name) OU created"
                 }
                 catch [Microsoft.ActiveDirectory.Management.ADException]
@@ -164,6 +171,39 @@ function New-ADTestEnviroment
                 }
                 catch {
                     Write-Error "Error while creating $($deparment.Name) OU"
+                }
+            }
+
+            if($CreateComputerAccounts){
+                
+                #Create Main OU
+                try
+                {
+                    New-ADOrganizationalUnit -Name $computersMainOU -ProtectedFromAccidentalDeletion $false
+                    Write-Verbose "$computersMainOU OU created"
+                }
+                catch [Microsoft.ActiveDirectory.Management.ADException]
+                {
+                    Write-Warning "$computersMainOU OU already exists"
+                }
+                catch {
+                    Write-Error "Error while creating $computersMainOU OU"
+                }
+
+                #Create sub OUs
+                foreach($deparment in $departments){
+                    try
+                    {
+                        New-ADOrganizationalUnit -Name $deparment.Name -Path "OU=$computersMainOU,$LDAPPath" -ProtectedFromAccidentalDeletion $false
+                        Write-Verbose "$($deparment.Name) OU created"
+                    }
+                    catch [Microsoft.ActiveDirectory.Management.ADException]
+                    {
+                        Write-Warning "$($deparment.Name) computers OU already exists"
+                    }
+                    catch {
+                        Write-Error "Error while creating $($deparment.Name) computers OU for computers"
+                    }
                 }
             }
         }
@@ -197,10 +237,10 @@ function New-ADTestEnviroment
                 $title = $departments[$departmentIndex].Positions[$(Get-Random -Minimum 0 -Maximum $departments[$departmentIndex].Positions.Count)]
    
                 # Build the sAMAccountName: $orgShortName + employee number
-                $sAMAccountName = $orgShortName + $accountIndex
+                $sAMAccountName = "$orgShortName-US-$(Get-RandomString -lenght 5)-$accountIndex"
 
                 # User OU
-                $userPath = "OU=$mainOU,$LDAPPath"
+                $userPath = "OU=$usersMainOU,$LDAPPath"
                 if($CreateOUs) {
                     $userPath = "OU=$department,$userPath"
                 }
@@ -209,6 +249,16 @@ function New-ADTestEnviroment
                 Try { 
                     New-ADUser -SamAccountName $sAMAccountName -Name $displayName -Path $userPath -AccountPassword $securePassword -Enabled $true -GivenName $Fname -Surname $Lname -DisplayName $displayName -EmailAddress "$Fname.$Lname@$dnsDomain" -StreetAddress $street -City $city -PostalCode $postalCode -State $state -Country $country -UserPrincipalName "$sAMAccountName@$dnsDomain" -Company $company -Department $department -EmployeeNumber $accountIndex -Title $title -OfficePhone $officePhone
                     Write-Verbose "Created user # $accountIndex ,$displayName, $sAMAccountName, $title, $department, $street, $city"
+                    if($CreateComputerAccounts) {
+                        $computerPath = "OU=$computersMainOU,$LDAPPath"
+                        if($CreateOUs) {
+                            $computerPath = "OU=$department,$computerPath"
+                        }
+                        
+                        $computerName = "$orgShortName-PC-$postalCode-$accountIndex"
+                        New-ADComputer -Name $computerName -Path $computerPath
+                        Write-Verbose "Computer Account $computerName created."
+                    }
                 } 
                 Catch [Microsoft.ActiveDirectory.Management.ADIdentityAlreadyExistsException]
                 {
@@ -225,4 +275,27 @@ function New-ADTestEnviroment
     }
 }
 
-New-ADTestEnviroment -Verbose -CreateOUs
+<#
+.Synopsis
+   Easy Random String generator
+#>
+function Get-RandomString
+{
+    [CmdletBinding()]
+    [Alias()]
+    [OutputType([String])]
+    Param
+    (
+        # Lenght
+        [Parameter(Mandatory=$true,
+                   ValueFromPipelineByPropertyName=$true,
+                   Position=0)]
+        [int]
+        $lenght
+    )
+
+    return (-join ((0x30..0x39) + (0x41..0x5A) | Get-Random -Count $lenght | % {[char]$_}))
+
+}
+
+New-ADTestEnviroment -Verbose -CreateOUs -CreateComputerAccounts
